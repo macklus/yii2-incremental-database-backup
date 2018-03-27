@@ -1,0 +1,21 @@
+{
+    "name": "macklus/yii2-incremental-database-backup",
+    "description": "Dump selected databases, compare md5sum for compressed files and update git repository for a safe and comprehensive backup",
+    "type": "yii2-extension",
+    "keywords": ["yii2","extension","backup","database","git","incremental","compressed","extension","module"," versioned"],
+    "license": "GPL-3.0+",
+    "authors": [
+        {
+            "name": "José Pedro Andrés García",
+            "email": "macklus@debianitas.net"
+        }
+    ],
+    "require": {
+        "yiisoft/yii2": "~2.0.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "macklus\\backup\\": ""
+        }
+    }
+}
