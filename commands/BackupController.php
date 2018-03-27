@@ -29,19 +29,21 @@ class BackupController extends Controller
     {
         $this->_message("Start incremental backup:\n");
 
-        $this->_ensureFolders();
-
         foreach ($this->dbs as $db) {
             $obj = Yii::$app->{$db};
 
             // Get connection data
-            $this->_message(" - $db:\n");
+            
             $dbdata = $this->_getDbData($obj);
+            $dbname = $dbdata['dbname'];
+            $this->_message(" - $dbname:\n");
+
+            $this->_ensureFolders($dbname);
 
             foreach ($obj->schema->tableNames as $table) {
                 // Dump table
                 $this->_message("   - $table...Dump...");
-                if ($this->_dumpTableTo($table, $table . '.sql', $dbdata)) {
+                if ($this->_dumpTableTo($dbname, $table, $table . '.sql', $dbdata)) {
                     $this->_message("[OK]...");
                 } else {
                     $this->_message("[ERROR]\n");
@@ -50,7 +52,7 @@ class BackupController extends Controller
 
                 // Compress file
                 $this->_message("Compress...");
-                if ($this->_compressFile($table . '.sql')) {
+                if ($this->_compressFile($dbname, $table . '.sql')) {
                     $this->_message("[OK]...");
                 } else {
                     $this->_message("[ERROR]\n");
@@ -58,15 +60,15 @@ class BackupController extends Controller
                 }
 
                 // Compare md5sum
-                if (file_exists($this->dest_dir . '/' . $table . '.sql.gz')) {
+                if (file_exists($this->dest_dir . '/' . $dbname . '/' . $table . '.sql.gz')) {
                     $this->_message("MD5 test...");
-                    $old_md5 = md5_file($this->dest_dir . '/' . $table . '.sql.gz');
-                    $new_md5 = md5_file($this->tmp_dir . '/' . $table . '.sql.gz');
+                    $old_md5 = md5_file($this->dest_dir . '/' . $dbname . '/' . $table . '.sql.gz');
+                    $new_md5 = md5_file($this->tmp_dir . '/' . $dbname . '/' . $table . '.sql.gz');
                     if ($old_md5 == $new_md5) {
                         $this->_message("SAME\n");
                     } else {
                         $this->_message("Copy...$old_md5 ... $new_md5");
-                        if ($this->_copyFileFromTempToDestAndDelete($table . '.sql.gz')) {
+                        if ($this->_copyFileFromTempToDestAndDelete($dbname, $table . '.sql.gz')) {
                             $this->hasChanges = true;
                             $this->_message("[OK]\n");
                         } else {
@@ -75,47 +77,45 @@ class BackupController extends Controller
                     }
                 } else {
                     $this->_message("Copy...");
-                    if ($this->_copyFileFromTempToDestAndDelete($table . '.sql.gz')) {
+                    if ($this->_copyFileFromTempToDestAndDelete($dbname, $table . '.sql.gz')) {
                         $this->_message("[OK]\n");
                     } else {
                         $this->_message("[ERROR]\n");
                     }
                 }
             }
-
-            //$this->gitPush();
         }
     }
 
-    private function _copyFileFromTempToDestAndDelete($file)
+    private function _copyFileFromTempToDestAndDelete($dbname, $file)
     {
-        if (copy($this->tmp_dir . '/' . $file, $this->dest_dir . '/' . $file)) {
-            @unlink($this->tmp_dir . '/' . $file);
+        if (copy($this->tmp_dir . '/' . $dbname . '/' . $file, $this->dest_dir . '/' . $dbname . '/' . $file)) {
+            @unlink($this->tmp_dir . '/' . $dbname . '/' . $file);
             return true;
         } else {
             return false;
         }
     }
 
-    private function _compressFile($file)
+    private function _compressFile($dbname, $file)
     {
-        if (file_exists($this->tmp_dir . '/' . $file . '.gz')) {
-            @unlink($this->tmp_dir . '/' . $file . '.gz');
+        if (file_exists($this->tmp_dir . '/' . $dbname . '/' . $file . '.gz')) {
+            @unlink($this->tmp_dir . '/' . $dbname . '/' . $file . '.gz');
         }
 
-        exec("/bin/gzip -nf " . $this->tmp_dir . '/' . $file, $output, $return_var);
+        exec("/bin/gzip -nf " . $this->tmp_dir . '/' . $dbname . '/' . $file, $output, $return_var);
 
-        if (file_exists($this->tmp_dir . '/' . $file . '.gz')) {
-            @unlink($this->tmp_dir . '/' . $file);
+        if (file_exists($this->tmp_dir . '/' . $dbname . '/' . $file . '.gz')) {
+            @unlink($this->tmp_dir . '/' . $dbname . '/' . $file);
             return true;
         } else {
             return false;
         }
     }
 
-    private function _dumpTableTo($table, $dest_file, $dbdata)
+    private function _dumpTableTo($dbname, $table, $dest_file, $dbdata)
     {
-        $dest_file = $this->tmp_dir . '/' . $dest_file;
+        $dest_file = $this->tmp_dir . '/' . $dbname . '/' . $dest_file;
         $command = $this->_generateDumpCommand($table, $dest_file, $dbdata);
         exec($command, $output, $return_var);
         return ($return_var == 0) ? true : false;
@@ -148,7 +148,7 @@ class BackupController extends Controller
             }
             $command .= ' ' . $dbdata['dbname'] . " $table > $dest_file";
         } else {
-            throw new \macklus\backup\exceptions\UnsuportedDatabaseException("Can not create $dir directory");
+            throw new \macklus\backup\exceptions\UnsuportedDatabaseException("Database type " . $dbdata['type'] . ' is not yet implemented');
         }
         return $command;
     }
@@ -178,19 +178,19 @@ class BackupController extends Controller
         return $data;
     }
 
-    private function _ensureFolders()
+    private function _ensureFolders($dbname)
     {
-        $this->_message(" - Directories\n");
+        $this->_message("   - Directories\n");
         foreach ([$this->tmp_dir, $this->dest_dir] as $dir) {
-            $this->_message("   - $dir...");
-            if (!is_dir($dir)) {
+            $this->_message("     - $dir/$dbname...");
+            if (!is_dir("$dir/$dbname")) {
                 $this->_message("creating...");
-                mkdir($dir, 0750, true);
+                mkdir("$dir/$dbname", 0750, true);
             }
-            if (is_dir($dir)) {
+            if (is_dir("$dir/$dbname")) {
                 $this->_message("[OK]\n");
             } else {
-                throw new \macklus\backup\exceptions\CantCreateDirectoryException("Can not create $dir directory");
+                throw new \macklus\backup\exceptions\CantCreateDirectoryException("Can not create $dir/$dbname directory");
             }
         }
     }
